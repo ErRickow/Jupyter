@@ -45,7 +45,5 @@ environment_variables: {}
 # Secrets (add your HuggingFace token if using gated models)
 secrets: {}
 
-# Base image
-base_image:
-  image: baseten/truss-server-base
-  python_executable_path: /usr/bin/python3
+# Note: base_image is not specified - Baseten will auto-select the best image
+# based on python_version and GPU requirements
