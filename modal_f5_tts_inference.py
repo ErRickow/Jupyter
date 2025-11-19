@@ -4,16 +4,22 @@ F5-TTS Inference Deployment on Modal.com
 
 Deploy PapaRazi/Ijazah_Palsu_V2 - Indonesian fine-tuned F5-TTS model.
 
-IMPORTANT:
-- Model PapaRazi/Ijazah_Palsu_V2 adalah REQUIRED (fine-tuned untuk bahasa Indonesia)
-- TIDAK ada fallback ke base model - model Indo ini HARUS digunakan
-- Jika model gagal download/load, deployment akan error (by design)
+CRITICAL REQUIREMENTS:
+- Model PapaRazi/Ijazah_Palsu_V2 adalah fine-tuned untuk bahasa Indonesia (95%)
+- Reference audio dalam BAHASA INDONESIA adalah REQUIRED (tidak bisa pakai English/default)
+- Model mengalami "catastrophic forgetting" - hanya bisa process Indonesian audio
+- F5-TTS adalah voice cloning model, bukan simple TTS
+
+TIDAK ada fallback ke base model atau default voice - model ini HARUS:
+1. Digunakan dengan Indonesian checkpoint
+2. Menerima Indonesian reference audio (WAV format recommended)
+3. Menerima Indonesian reference text (transcription)
 
 Features:
 - Download model PapaRazi dari HuggingFace
 - GPU T4 untuk inference cepat
 - RESTful API endpoints
-- Zero-shot voice cloning
+- Zero-shot voice cloning untuk bahasa Indonesia
 - Model caching untuk cold start yang lebih cepat
 - Optimized untuk bahasa Indonesia
 
@@ -214,21 +220,26 @@ class F5TTSModel:
     def generate_speech(
         self,
         text: str,
-        ref_audio_base64: Optional[str] = None,  # Optional - uses default voice if not provided
-        ref_text: Optional[str] = None,  # Optional - only needed with ref_audio
+        ref_audio_base64: str,  # REQUIRED - Indonesian reference audio
+        ref_text: str,  # REQUIRED - Indonesian transcription
         remove_silence: bool = True,
     ) -> dict:
         """
-        Generate speech dari text menggunakan F5-TTS.
+        Generate speech dari text menggunakan F5-TTS Indonesian model.
 
-        F5-TTS mendukung 2 mode:
-        1. **Default Voice Mode**: Tanpa reference audio - pakai built-in default voice
-        2. **Voice Cloning Mode**: Dengan reference audio - clone voice dari reference
+        IMPORTANT: Model PapaRazi fine-tuned untuk Indonesian (95%).
+        Reference audio HARUS dalam bahasa Indonesia. English audio akan menghasilkan noise.
+
+        Why reference audio is REQUIRED:
+        - Model mengalami "catastrophic forgetting" setelah fine-tuning
+        - Tidak bisa pakai English default voice (akan output noise saja)
+        - F5-TTS adalah voice cloning model, bukan simple TTS
+        - Quality terbaik dengan Indonesian reference audio yang clear
 
         Args:
-            text: Text yang ingin diubah menjadi speech (REQUIRED)
-            ref_audio_base64: Reference audio base64 untuk voice cloning (Optional)
-            ref_text: Transcription dari reference audio (Optional, hanya jika ada ref_audio)
+            text: Text Indonesian yang ingin diubah menjadi speech (REQUIRED)
+            ref_audio_base64: Reference audio base64 INDONESIAN voice (REQUIRED)
+            ref_text: Transcription Indonesian dari reference audio (REQUIRED)
             remove_silence: Remove silence di awal dan akhir audio
 
         Returns:
@@ -236,7 +247,7 @@ class F5TTSModel:
                 - audio_base64: Generated audio dalam base64
                 - sample_rate: Sample rate audio
                 - duration: Duration dalam detik
-                - mode: "default_voice" atau "voice_cloning"
+                - success: True jika berhasil
         """
         import torch
         import soundfile as sf
@@ -247,22 +258,26 @@ class F5TTSModel:
         import os
 
         print(f"🎤 Generating speech for text: {text[:50]}...")
+        print(f"🎙️  Mode: Indonesian Voice Cloning")
 
-        # Determine mode
-        use_voice_cloning = bool(ref_audio_base64)
+        # Validate inputs
+        if not ref_audio_base64:
+            raise ValueError(
+                "Reference audio is REQUIRED for Indonesian model PapaRazi/Ijazah_Palsu_V2. "
+                "Model fine-tuned untuk Indonesian (95%) dan tidak bisa pakai English default. "
+                "Provide Indonesian reference audio dalam base64 format."
+            )
 
-        if use_voice_cloning:
-            print("🎭 Mode: Voice Cloning (with reference audio)")
-            if not ref_text:
-                print("⚠️  Warning: ref_text not provided. Model may use ASR to transcribe reference audio.")
-        else:
-            print("🎙️  Mode: Default Voice (no reference audio)")
+        if not ref_text:
+            raise ValueError(
+                "Reference text (transcription) is REQUIRED. "
+                "Provide transcription Indonesian dari reference audio Anda."
+            )
 
-        # Handle reference audio
+        # Decode and save reference audio
         temp_ref_file = None
 
-        if ref_audio_base64:
-            # Voice Cloning Mode: Use user-provided reference audio
+        try:
             # Decode base64 audio
             audio_bytes = base64.b64decode(ref_audio_base64)
 
@@ -272,29 +287,9 @@ class F5TTSModel:
                 temp_ref_file = f.name
                 ref_file = temp_ref_file
 
-            print(f"📁 Using user-provided reference audio for voice cloning")
-        else:
-            # Default Voice Mode: Use F5-TTS built-in default reference audio
-            # F5-TTS package includes default reference audio in infer/examples/basic/
-            from importlib.resources import files
+            print(f"📁 Using Indonesian reference audio for voice cloning")
+            print(f"📝 Reference text: {ref_text[:50]}...")
 
-            try:
-                # Get path to F5-TTS package's default reference audio
-                ref_file = str(files("f5_tts").joinpath("infer/examples/basic/basic_ref_en.wav"))
-
-                # Use default reference text if not provided
-                if not ref_text:
-                    ref_text = "Some call me nature, others call me mother nature."  # Default text for basic_ref_en.wav
-
-                print(f"📁 Using F5-TTS default reference audio (built-in voice)")
-            except Exception as e:
-                # Fallback: use a simple approach - create ref_file with package path
-                ref_file = "infer/examples/basic/basic_ref_en.wav"
-                if not ref_text:
-                    ref_text = "Some call me nature, others call me mother nature."
-                print(f"📁 Using F5-TTS default reference audio path: {ref_file}")
-
-        try:
             # Generate speech using F5-TTS
             wav, sr, spect = self.tts.infer(
                 gen_text=text,
@@ -336,13 +331,10 @@ class F5TTSModel:
 
             print(f"📊 Audio duration: {duration:.2f} seconds")
 
-            mode = "voice_cloning" if use_voice_cloning else "default_voice"
-
             return {
                 "audio_base64": audio_base64,
                 "sample_rate": int(sr),
                 "duration": float(duration),
-                "mode": mode,
                 "success": True,
             }
 
@@ -357,7 +349,6 @@ class F5TTSModel:
 
         finally:
             # Cleanup temporary files
-            # Only remove temp_ref_file (user-uploaded audio), not default ref_file from package
             if temp_ref_file and os.path.exists(temp_ref_file):
                 os.remove(temp_ref_file)
             if 'output_file' in locals() and os.path.exists(output_file):
@@ -375,21 +366,22 @@ def tts_api(data: dict) -> dict:
     """
     RESTful API endpoint untuk TTS inference.
 
-    F5-TTS mendukung 2 mode:
-    1. **Default Voice Mode**: Hanya kirim text - pakai default voice
-    2. **Voice Cloning Mode**: Kirim text + reference audio - clone voice
+    IMPORTANT: Model PapaRazi/Ijazah_Palsu_V2 fine-tuned untuk Indonesian (95%).
+    Reference audio INDONESIAN adalah REQUIRED - tidak bisa pakai default English.
 
-    Request body (Default Voice Mode):
+    Request body:
     {
-        "text": "Text to synthesize (REQUIRED)",
+        "text": "Text Indonesian to synthesize (REQUIRED)",
+        "ref_audio_base64": "base64 encoded WAV audio INDONESIAN (REQUIRED)",
+        "ref_text": "Transcription Indonesian dari reference audio (REQUIRED)",
         "remove_silence": true
     }
 
-    Request body (Voice Cloning Mode):
+    Example:
     {
-        "text": "Text to synthesize (REQUIRED)",
-        "ref_audio_base64": "base64 encoded WAV audio (Optional)",
-        "ref_text": "Transcription of reference audio (Optional)",
+        "text": "Suatu hari nanti, suara ini mungkin tidak bisa dibedakan lagi dari suara manusia asli.",
+        "ref_audio_base64": "UklGRiQAAABXQVZFZm10IBAA...",
+        "ref_text": "Halo, nama saya adalah contoh suara untuk referensi.",
         "remove_silence": true
     }
 
@@ -398,7 +390,6 @@ def tts_api(data: dict) -> dict:
         "audio_base64": "base64 encoded generated audio",
         "sample_rate": 24000,
         "duration": 3.5,
-        "mode": "default_voice" or "voice_cloning",
         "success": true
     }
 
@@ -410,17 +401,27 @@ def tts_api(data: dict) -> dict:
     """
     model = F5TTSModel()
 
-    # Validate required field
+    # Validate required fields
     text = data.get("text")
     if not text:
         return {
             "success": False,
-            "error": "Missing required field: text"
+            "error": "Missing required field: text (Indonesian text to synthesize)"
         }
 
-    # Optional fields for voice cloning
     ref_audio_base64 = data.get("ref_audio_base64")
+    if not ref_audio_base64:
+        return {
+            "success": False,
+            "error": "Missing required field: ref_audio_base64 (Indonesian reference audio in base64). Model PapaRazi fine-tuned untuk Indonesian dan tidak support default English audio."
+        }
+
     ref_text = data.get("ref_text")
+    if not ref_text:
+        return {
+            "success": False,
+            "error": "Missing required field: ref_text (Indonesian transcription of reference audio)"
+        }
 
     result = model.generate_speech.remote(
         text=text,

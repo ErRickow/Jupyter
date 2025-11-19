@@ -4,6 +4,9 @@ F5-TTS Modal Client
 
 Client code untuk menggunakan F5-TTS API yang di-deploy di Modal.com
 
+IMPORTANT: Model PapaRazi/Ijazah_Palsu_V2 fine-tuned untuk Indonesian (95%).
+Reference audio INDONESIAN adalah REQUIRED - tidak bisa pakai default English.
+
 Usage:
     python modal_f5_tts_client.py
 """
@@ -48,55 +51,70 @@ class F5TTSClient:
     def synthesize(
         self,
         text: str,
-        ref_audio_path: Optional[str] = None,  # Optional - for voice cloning
-        ref_text: Optional[str] = None,  # Optional - transcription of reference
+        ref_audio_path: str,  # REQUIRED - Indonesian reference audio
+        ref_text: str,  # REQUIRED - Indonesian transcription
         remove_silence: bool = True,
         output_path: str = "output.wav",
         timeout: int = 120,
     ) -> dict:
         """
-        Synthesize speech dari text.
+        Synthesize speech dari text menggunakan Indonesian voice cloning.
 
-        F5-TTS supports 2 modes:
-        1. **Default Voice Mode**: Tanpa reference audio - pakai built-in default voice
-        2. **Voice Cloning Mode**: Dengan reference audio - clone voice dari reference
+        IMPORTANT: Model PapaRazi fine-tuned untuk Indonesian (95%).
+        Reference audio HARUS dalam bahasa Indonesia.
 
         Args:
-            text: Text yang ingin diubah menjadi speech (REQUIRED)
-            ref_audio_path: Path ke reference audio untuk voice cloning (Optional)
-            ref_text: Transcription dari reference audio (Optional, hanya jika ada ref_audio)
+            text: Text Indonesian yang ingin diubah menjadi speech (REQUIRED)
+            ref_audio_path: Path ke reference audio INDONESIAN (REQUIRED)
+            ref_text: Transcription Indonesian dari reference audio (REQUIRED)
             remove_silence: Remove silence di awal dan akhir
             output_path: Path untuk save generated audio
             timeout: Request timeout dalam detik
 
         Returns:
             dict: Response dari API dengan info audio yang di-generate
+
+        Example:
+            client = F5TTSClient(API_URL)
+            result = client.synthesize(
+                text="Suatu hari nanti, suara ini mungkin tidak bisa dibedakan lagi dari suara manusia asli.",
+                ref_audio_path="my_indonesian_voice.wav",
+                ref_text="Halo, nama saya adalah contoh suara untuk referensi.",
+                output_path="output.wav"
+            )
         """
+        # Validate required inputs
+        if not ref_audio_path:
+            raise ValueError(
+                "ref_audio_path is REQUIRED. Model PapaRazi fine-tuned untuk Indonesian "
+                "dan tidak support default English voice. Provide Indonesian reference audio."
+            )
+
+        if not ref_text:
+            raise ValueError(
+                "ref_text is REQUIRED. Provide Indonesian transcription dari reference audio Anda."
+            )
+
+        # Read and encode reference audio
+        ref_path = Path(ref_audio_path)
+        if not ref_path.exists():
+            raise FileNotFoundError(f"Reference audio not found: {ref_audio_path}")
+
+        with open(ref_path, "rb") as f:
+            audio_bytes = f.read()
+            audio_base64 = base64.b64encode(audio_bytes).decode()
+
         # Prepare request data
         data = {
             "text": text,
+            "ref_audio_base64": audio_base64,
+            "ref_text": ref_text,
             "remove_silence": remove_silence,
         }
 
-        # Add reference audio if provided (Voice Cloning Mode)
-        if ref_audio_path:
-            ref_path = Path(ref_audio_path)
-            if not ref_path.exists():
-                raise FileNotFoundError(f"Reference audio not found: {ref_audio_path}")
-
-            # Read and encode audio
-            with open(ref_path, "rb") as f:
-                audio_bytes = f.read()
-                data["ref_audio_base64"] = base64.b64encode(audio_bytes).decode()
-
-            print(f"🎭 Mode: Voice Cloning")
-            print(f"📁 Using reference audio: {ref_audio_path}")
-        else:
-            print(f"🎙️  Mode: Default Voice (using F5-TTS built-in voice)")
-
-        # Add reference text jika ada
-        if ref_text:
-            data["ref_text"] = ref_text
+        print(f"🎙️  Mode: Indonesian Voice Cloning")
+        print(f"📁 Reference audio: {ref_audio_path}")
+        print(f"📝 Reference text: {ref_text[:50]}...")
 
         # Send request
         print(f"📤 Sending request to API...")
@@ -218,42 +236,28 @@ def main():
     print(f"GPU Available: {health.get('gpu_available')}")
     print()
 
-    print("\n📖 F5-TTS supports 2 modes:")
-    print("  1. Default Voice Mode: Text-only input")
-    print("  2. Voice Cloning Mode: Text + Reference Audio")
+    print("\n📖 IMPORTANT: Model PapaRazi fine-tuned untuk Indonesian (95%)")
+    print("   Reference audio INDONESIAN adalah REQUIRED")
+    print("   Tidak bisa pakai default English voice")
     print()
 
-    # TEST 1: Default Voice Mode (Simple TTS - no reference audio needed!)
+    # Indonesian Voice Cloning Mode (REQUIRED)
     print("="*60)
-    print("TEST 1: Default Voice Mode (Text Only)")
-    print("="*60)
-
-    result1 = client.synthesize(
-        text="Halo, ini adalah test TTS dengan default voice dalam bahasa Indonesia.",
-        output_path="output_default_voice.wav",
-    )
-
-    if result1.get("success"):
-        print(f"\n✅ Test 1 successful!")
-        print(f"   Mode: {result1.get('mode', 'N/A')}")
-        print(f"   Duration: {result1.get('duration', 0):.2f}s")
-    else:
-        print(f"\n❌ Test 1 failed: {result1.get('error')}")
-
-    # TEST 2: Voice Cloning Mode (Optional - jika punya reference audio)
-    print("\n" + "="*60)
-    print("TEST 2: Voice Cloning Mode (With Reference Audio)")
+    print("TEST: Indonesian Voice Cloning")
     print("="*60)
 
-    # Reference audio configuration - UPDATE THESE!
-    REF_AUDIO_PATH = "reference_audio.wav"  # TODO: Set your reference audio path
-    REF_TEXT = "Transcription of your reference audio."  # TODO: Set transcription
+    # Reference audio configuration - UPDATE THESE dengan Indonesian audio!
+    REF_AUDIO_PATH = "indonesian_reference.wav"  # TODO: Set Indonesian reference audio path
+    REF_TEXT = "Halo, nama saya adalah contoh suara untuk referensi."  # TODO: Set Indonesian transcription
 
     import os
     if not os.path.exists(REF_AUDIO_PATH):
-        print(f"\n⏭️  Test 2 skipped: Reference audio not found")
-        print("   To test voice cloning:")
-        print(f"   1. Place reference audio at: {REF_AUDIO_PATH}")
+        print(f"\n⚠️  Test skipped: Indonesian reference audio not found")
+        print("   IMPORTANT: Reference audio HARUS dalam bahasa Indonesia!")
+        print()
+        print("   Setup instructions:")
+        print(f"   1. Siapkan Indonesian reference audio (WAV format recommended)")
+        print(f"   2. Save as: {REF_AUDIO_PATH}")
         print(f"   2. Update REF_TEXT variable")
         print("   3. Run again")
     else:
