@@ -1,14 +1,16 @@
 """
-F5-TTS Inference Deployment on Modal.com
-==========================================
+F5-TTS Inference Deployment on Modal.com (FIXED VERSION)
+=========================================================
 
 Deploy PapaRazi/Ijazah_Palsu_V2 (F5-TTS based) Text-to-Speech model for serverless inference.
 
+FIXED: Proper model download dari HuggingFace sebelum loading
+
 Features:
+- Download model dari HuggingFace dulu
 - GPU T4 untuk inference cepat
 - RESTful API endpoints
 - Zero-shot voice cloning
-- Automatic batching support
 - Model caching untuk cold start yang lebih cepat
 
 Author: Claude
@@ -26,10 +28,14 @@ from typing import Optional
 # ============================================================================
 
 # Model configuration
-MODEL_NAME = "PapaRazi/Ijazah_Palsu_V2"  # Ganti dengan model ID Anda
+MODEL_NAME = "PapaRazi/Ijazah_Palsu_V2"  # HuggingFace model ID
 BASE_MODEL = "SWivid/F5-TTS"  # Fallback ke base model jika custom model tidak tersedia
 GPU_TYPE = "T4"  # GPU type sesuai permintaan
 TIMEOUT_MINUTES = 10
+
+# Paths
+MODEL_CACHE_DIR = "/models"
+HF_CACHE_DIR = "/root/.cache/huggingface"
 
 # ============================================================================
 # CONTAINER IMAGE SETUP
@@ -38,7 +44,7 @@ TIMEOUT_MINUTES = 10
 # Build container image dengan dependencies yang diperlukan
 f5_tts_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git", "ffmpeg")  # FFmpeg required untuk audio processing
+    .apt_install("git", "ffmpeg", "libsndfile1")  # FFmpeg required untuk audio processing
     .pip_install(
         "torch==2.1.0",
         "torchaudio==2.1.0",
@@ -49,7 +55,7 @@ f5_tts_image = (
         "numpy",
         "scipy",
         "pydub",
-        "huggingface-hub",
+        "huggingface-hub>=0.20.0",
     )
     .run_commands(
         # Install F5-TTS dari GitHub
@@ -74,6 +80,41 @@ model_cache_vol = modal.Volume.from_name(
 app = modal.App("f5-tts-inference")
 
 # ============================================================================
+# HELPER FUNCTION: DOWNLOAD MODEL
+# ============================================================================
+
+def download_model_from_hf(model_id: str, cache_dir: str) -> str:
+    """
+    Download model dari HuggingFace Hub.
+
+    Args:
+        model_id: HuggingFace model ID (e.g., "PapaRazi/Ijazah_Palsu_V2")
+        cache_dir: Directory untuk cache model
+
+    Returns:
+        str: Path ke downloaded model
+    """
+    from huggingface_hub import snapshot_download, hf_hub_download
+    import os
+
+    print(f"📥 Downloading model from HuggingFace: {model_id}")
+
+    try:
+        # Try snapshot_download untuk download semua files
+        model_path = snapshot_download(
+            repo_id=model_id,
+            cache_dir=cache_dir,
+            resume_download=True,
+            # token=os.getenv("HF_TOKEN"),  # Uncomment jika model private
+        )
+        print(f"✅ Model downloaded successfully to: {model_path}")
+        return model_path
+
+    except Exception as e:
+        print(f"❌ Failed to download model: {e}")
+        raise
+
+# ============================================================================
 # TTS MODEL CLASS
 # ============================================================================
 
@@ -83,7 +124,7 @@ app = modal.App("f5-tts-inference")
     timeout=TIMEOUT_MINUTES * 60,
     container_idle_timeout=300,  # Keep warm untuk 5 menit setelah last request
     volumes={
-        "/root/.cache/huggingface": model_cache_vol,
+        MODEL_CACHE_DIR: model_cache_vol,
     },
     secrets=[
         # Optional: Tambahkan HF token jika model private
@@ -100,26 +141,16 @@ class F5TTSModel:
     @modal.enter()
     def load_model(self):
         """
-        Load model saat container start (warm start optimization).
+        Download dan load model saat container start (warm start optimization).
         Fungsi ini dipanggil sekali per container lifecycle.
         """
-        print(f"🚀 Loading F5-TTS model: {MODEL_NAME}")
-
-        from f5_tts.api import F5TTS
         import torch
+        import os
+        from pathlib import Path
 
-        # Initialize F5-TTS
-        try:
-            # Coba load custom model dulu
-            self.tts = F5TTS(model_type="custom", ckpt_file=MODEL_NAME)
-            print(f"✅ Successfully loaded custom model: {MODEL_NAME}")
-        except Exception as e:
-            # Fallback ke base model
-            print(f"⚠️  Custom model not found, using base model: {BASE_MODEL}")
-            print(f"   Error: {e}")
-            self.tts = F5TTS(model_type="F5-TTS")  # Use base F5-TTS model
+        print(f"🚀 Initializing F5-TTS model: {MODEL_NAME}")
 
-        # Check GPU availability
+        # Check GPU availability first
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🎮 Using device: {self.device}")
 
@@ -129,7 +160,63 @@ class F5TTSModel:
             print(f"   GPU: {gpu_name}")
             print(f"   Memory: {gpu_memory:.2f} GB")
 
-        print("✅ Model loaded and ready for inference!")
+        # Download model dari HuggingFace
+        model_loaded = False
+        model_path = None
+
+        try:
+            # Try download custom model
+            print(f"\n📥 Step 1: Downloading model from HuggingFace...")
+            model_path = download_model_from_hf(MODEL_NAME, MODEL_CACHE_DIR)
+
+            # Check if model files exist
+            model_path_obj = Path(model_path)
+            print(f"\n📁 Model files in {model_path}:")
+
+            if model_path_obj.exists():
+                files = list(model_path_obj.rglob("*"))[:20]  # Show first 20 files
+                for f in files:
+                    if f.is_file():
+                        size_mb = f.stat().st_size / (1024 * 1024)
+                        print(f"   - {f.name} ({size_mb:.2f} MB)")
+
+            # Load model dengan F5-TTS
+            print(f"\n🔄 Step 2: Loading model into memory...")
+
+            from f5_tts.api import F5TTS
+
+            # Check for model checkpoint files
+            ckpt_files = list(model_path_obj.rglob("*.pt")) + list(model_path_obj.rglob("*.pth")) + list(model_path_obj.rglob("*.safetensors"))
+
+            if ckpt_files:
+                # Load dari checkpoint yang di-download
+                ckpt_file = str(ckpt_files[0])
+                print(f"   Using checkpoint: {ckpt_file}")
+                self.tts = F5TTS(model_type="custom", ckpt_file=ckpt_file)
+                model_loaded = True
+                print(f"✅ Successfully loaded custom model: {MODEL_NAME}")
+            else:
+                print(f"⚠️  No checkpoint files found in downloaded model")
+                raise FileNotFoundError("No model checkpoint found")
+
+        except Exception as e:
+            # Fallback ke base model
+            print(f"\n⚠️  Could not load custom model: {e}")
+            print(f"🔄 Falling back to base model: {BASE_MODEL}")
+
+            try:
+                from f5_tts.api import F5TTS
+                self.tts = F5TTS(model_type="F5-TTS")  # Use base F5-TTS model
+                model_loaded = True
+                print(f"✅ Successfully loaded base F5-TTS model")
+            except Exception as base_error:
+                print(f"❌ Failed to load base model: {base_error}")
+                raise
+
+        if not model_loaded:
+            raise RuntimeError("Failed to load any TTS model")
+
+        print("\n✅ Model loaded and ready for inference!")
 
     @modal.method()
     def generate_speech(
@@ -160,6 +247,7 @@ class F5TTSModel:
         from pydub import AudioSegment
         from pydub.silence import detect_leading_silence
         import tempfile
+        import os
 
         print(f"🎤 Generating speech for text: {text[:50]}...")
 
@@ -227,6 +315,8 @@ class F5TTSModel:
 
         except Exception as e:
             print(f"❌ Error during speech generation: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e),
@@ -234,7 +324,6 @@ class F5TTSModel:
 
         finally:
             # Cleanup temporary files
-            import os
             if ref_file and os.path.exists(ref_file):
                 os.remove(ref_file)
             if 'output_file' in locals() and os.path.exists(output_file):
@@ -356,67 +445,29 @@ CARA DEPLOY & MENGGUNAKAN:
 2. SETUP MODAL ACCOUNT:
    modal setup
 
-3. DEPLOY MODEL:
+3. (Optional) SETUP HF TOKEN jika model private:
+   modal secret create huggingface-secret HF_TOKEN=hf_xxxxx
+
+4. DEPLOY MODEL:
    modal deploy modal_f5_tts_inference.py
 
-4. TEST LOCALLY:
+5. TEST LOCALLY:
    modal run modal_f5_tts_inference.py
 
-5. MENGGUNAKAN API:
+6. MENGGUNAKAN API:
+   Gunakan modal_f5_tts_client.py atau curl/requests
 
-   Setelah deploy, Anda akan mendapat URL endpoint seperti:
-   https://your-username--f5-tts-inference-tts-api.modal.run
+CHANGELOG:
+==========
 
-   Contoh request dengan Python:
+v2 (FIXED):
+- ✅ Download model dari HuggingFace dengan snapshot_download
+- ✅ Proper model caching di Modal Volume
+- ✅ Better error handling dan fallback
+- ✅ Show downloaded model files
+- ✅ Support untuk checkpoint files (.pt, .pth, .safetensors)
+- ✅ More verbose logging untuk debugging
 
-   ```python
-   import requests
-   import base64
-
-   # Read reference audio (optional untuk voice cloning)
-   with open("reference.wav", "rb") as f:
-       ref_audio_base64 = base64.b64encode(f.read()).decode()
-
-   # API request
-   response = requests.post(
-       "https://your-url.modal.run",
-       json={
-           "text": "Halo, ini adalah test TTS.",
-           "ref_audio_base64": ref_audio_base64,  # Optional
-           "ref_text": "This is reference audio transcription",  # Optional
-           "remove_silence": True
-       }
-   )
-
-   result = response.json()
-
-   # Save audio
-   if result["success"]:
-       audio_bytes = base64.b64decode(result["audio_base64"])
-       with open("output.wav", "wb") as f:
-           f.write(audio_bytes)
-   ```
-
-   Contoh request dengan cURL:
-
-   ```bash
-   curl -X POST https://your-url.modal.run \
-     -H "Content-Type: application/json" \
-     -d '{
-       "text": "Hello, this is a test.",
-       "remove_silence": true
-     }'
-   ```
-
-6. MONITORING:
-   modal app logs f5-tts-inference
-
-7. STOP DEPLOYMENT:
-   modal app stop f5-tts-inference
-
-CATATAN:
-- Model akan di-cache di volume untuk cold start yang lebih cepat
-- Container akan tetap warm selama 5 menit setelah request terakhir
-- Gunakan T4 GPU untuk balance antara cost dan performance
-- Untuk production, pertimbangkan upgrade ke A10G atau A100
+v1:
+- Initial version (buggy - tidak download model dulu)
 """
