@@ -4,20 +4,24 @@ python_version: py311
 # Model metadata
 model_metadata:
   example_model_input:
-    text: "Hello, this is a test of text to speech synthesis using Unsloth for efficient inference."
+    text: "Hello, this is a test of text to speech synthesis using Unsloth!"
+    voice: "tara"
     temperature: 0.7
-    max_length: 1024
+    max_new_tokens: 512
+    emotion: ""
+    return_format: "base64"
 
 # Python dependencies
 requirements:
   - torch==2.1.2
   - transformers==4.36.2
   - unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+  - snac @ git+https://github.com/hubertsiuzdak/snac.git
   - accelerate==0.25.0
   - bitsandbytes==0.41.3
   - scipy
   - soundfile
-  - librosa
+  - torchaudio
 
 # System packages (if needed for audio processing)
 system_packages:

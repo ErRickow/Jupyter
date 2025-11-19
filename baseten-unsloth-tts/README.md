@@ -2,12 +2,19 @@
 
 Text-to-Speech deployment menggunakan Unsloth untuk inference yang super efisien di T4 GPU.
 
-## 🎯 Kenapa Unsloth?
+## 🎯 Kenapa Unsloth + SNAC?
 
+### Unsloth Benefits
 - **2x faster inference** dibanding implementasi standard
 - **50% less memory** dengan Flash Attention 2 optimization
 - **Perfect untuk T4 GPU** - tidak boros resources
 - **Support 4-bit quantization** untuk efficiency maksimal
+
+### SNAC Vocoder
+- **High-quality audio** - Neural audio codec 24kHz
+- **Multi-scale architecture** - Hierarchical audio representation
+- **Low bitrate** - 0.98 kbps untuk speech
+- **Fast decoding** - Real-time audio generation
 
 ## 📁 Struktur Project
 
@@ -67,7 +74,9 @@ response = requests.post(
     headers={"Authorization": f"Api-Key {API_KEY}"},
     json={
         "text": "Halo, ini test text to speech menggunakan Unsloth!",
+        "voice": "tara",  # Options: tara, leah, jess, leo, dan, mia, zac, zoe
         "temperature": 0.7,
+        "emotion": "",  # Optional: <laugh>, <sigh>, <cough>
         "return_format": "base64"
     }
 )
@@ -91,9 +100,10 @@ print(f"Audio saved! Duration: {result['duration']:.2f}s")
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `text` | string | **required** | Text yang ingin di-convert ke speech |
+| `voice` | string | "tara" | Voice name: tara, leah, jess, leo, dan, mia, zac, zoe |
 | `temperature` | float | 0.7 | Sampling temperature (0.0-1.0) |
-| `max_length` | int | 1024 | Maximum audio length tokens |
-| `emotion` | string | "" | Emotion tags seperti `<laugh>`, `<sigh>` |
+| `max_new_tokens` | int | 512 | Maximum tokens to generate |
+| `emotion` | string | "" | Emotion tags: `<laugh>`, `<sigh>`, `<cough>`, dll |
 | `return_format` | string | "base64" | Format output: "base64" atau "array" |
 
 ### Output
@@ -145,21 +155,30 @@ resources:
   accelerator: T4    # T4, A10G, A100, dll
 ```
 
-## 🎤 Model TTS yang Didukung Unsloth
+## 🎤 Model TTS yang Didukung
+
+### Currently Implemented
 
 1. **Orpheus-TTS (3B)** ⭐ **RECOMMENDED**
-   - Model: `OuteAI/Orpheus-3B`
-   - High quality, emotional expression
-   - Export ke llama.cpp compatible
+   - Model: `unsloth/orpheus-3b-0.1-ft`
+   - **8 voices**: tara, leah, jess, mia, leo, dan, zac, zoe
+   - **Emotional expression**: `<laugh>`, `<sigh>`, `<cough>`, dll
+   - **SNAC vocoder**: 24kHz high-quality audio
+   - **Multi-speaker**: Pre-trained on diverse voices
 
-2. **Sesame-CSM (1B)**
-   - Model: `hexgrad/Kokoro-82M`
-   - Lightweight option
+### Alternative Models (Configurable)
 
-3. **Spark-TTS (0.5B)**
-   - Paling ringan untuk latency ultra-rendah
+2. **Orpheus Pre-trained**
+   - Model: `unsloth/orpheus-3b-0.1-pretrained`
+   - Base model untuk fine-tuning custom
 
-4. **Custom Fine-tuned Model**
+3. **Sesame-CSM (1B)**
+   - Lightweight option (coming soon)
+
+4. **Spark-TTS (0.5B)**
+   - Ultra-low latency (coming soon)
+
+5. **Custom Fine-tuned Model**
    - Fine-tune pakai Unsloth di Colab/local
    - Upload ke HuggingFace
    - Deploy di sini!

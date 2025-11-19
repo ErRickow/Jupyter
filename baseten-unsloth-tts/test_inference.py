@@ -42,8 +42,10 @@ def test_tts_inference(
     # Prepare request
     payload = {
         "text": text,
+        "voice": "tara",  # Options: tara, leah, jess, leo, dan, mia, zac, zoe
         "temperature": 0.7,
-        "max_length": 1024,
+        "max_new_tokens": 512,
+        "emotion": "",  # Optional: <laugh>, <sigh>, <cough>, etc.
         "return_format": "base64"
     }
 
@@ -140,7 +142,9 @@ def main():
     test_texts = [
         "Halo, ini adalah test text to speech menggunakan Unsloth!",
         "Unsloth membuat inference TTS dua kali lebih cepat dengan memory 50 persen lebih hemat.",
-        "Perfect untuk deployment di T4 GPU tanpa boros resources!"
+        "Perfect untuk deployment di T4 GPU tanpa boros resources!",
+        "<laugh> This is amazing! The voice quality is so natural.",
+        "<sigh> Finally, an efficient TTS solution for production."
     ]
 
     # Run test
