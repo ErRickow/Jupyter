@@ -192,7 +192,13 @@ class F5TTSModel:
                 # Load dari checkpoint yang di-download
                 ckpt_file = str(ckpt_files[0])
                 print(f"   Using checkpoint: {ckpt_file}")
-                self.tts = F5TTS(model_type="custom", ckpt_file=ckpt_file)
+
+                # F5TTS API: model parameter (not model_type), ckpt_file for custom checkpoint
+                self.tts = F5TTS(
+                    model="F5TTS_Base",  # Model config name
+                    ckpt_file=ckpt_file,  # Custom checkpoint path
+                    device=self.device,
+                )
                 model_loaded = True
                 print(f"✅ Successfully loaded custom model: {MODEL_NAME}")
             else:
@@ -206,7 +212,11 @@ class F5TTSModel:
 
             try:
                 from f5_tts.api import F5TTS
-                self.tts = F5TTS(model_type="F5-TTS")  # Use base F5-TTS model
+                # Use base F5-TTS model with default checkpoint
+                self.tts = F5TTS(
+                    model="F5TTS_Base",  # or "F5TTS_v1_Base"
+                    device=self.device,
+                )
                 model_loaded = True
                 print(f"✅ Successfully loaded base F5-TTS model")
             except Exception as base_error:
@@ -459,6 +469,11 @@ CARA DEPLOY & MENGGUNAKAN:
 
 CHANGELOG:
 ==========
+
+v3 (FIXED API):
+- ✅ Fix F5TTS API call - use 'model' parameter instead of 'model_type'
+- ✅ Correct initialization: F5TTS(model="F5TTS_Base", ckpt_file=path)
+- ✅ Add device parameter to F5TTS initialization
 
 v2 (FIXED):
 - ✅ Download model dari HuggingFace dengan snapshot_download
