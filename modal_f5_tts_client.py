@@ -89,7 +89,10 @@ class F5TTSClient:
                 audio_bytes = f.read()
                 data["ref_audio_base64"] = base64.b64encode(audio_bytes).decode()
 
+            print(f"🎭 Mode: Voice Cloning")
             print(f"📁 Using reference audio: {ref_audio_path}")
+        else:
+            print(f"🎙️  Mode: Default Voice (using F5-TTS built-in voice)")
 
         # Add reference text jika ada
         if ref_text:

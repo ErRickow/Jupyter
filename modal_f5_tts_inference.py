@@ -259,20 +259,43 @@ class F5TTSModel:
             print("🎙️  Mode: Default Voice (no reference audio)")
 
         # Handle reference audio
-        ref_file = None
+        temp_ref_file = None
+
         if ref_audio_base64:
+            # Voice Cloning Mode: Use user-provided reference audio
             # Decode base64 audio
             audio_bytes = base64.b64decode(ref_audio_base64)
 
             # Save temporary file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 f.write(audio_bytes)
-                ref_file = f.name
+                temp_ref_file = f.name
+                ref_file = temp_ref_file
 
-            print(f"📁 Using reference audio for voice cloning")
+            print(f"📁 Using user-provided reference audio for voice cloning")
+        else:
+            # Default Voice Mode: Use F5-TTS built-in default reference audio
+            # F5-TTS package includes default reference audio in infer/examples/basic/
+            from importlib.resources import files
+
+            try:
+                # Get path to F5-TTS package's default reference audio
+                ref_file = str(files("f5_tts").joinpath("infer/examples/basic/basic_ref_en.wav"))
+
+                # Use default reference text if not provided
+                if not ref_text:
+                    ref_text = "Some call me nature, others call me mother nature."  # Default text for basic_ref_en.wav
+
+                print(f"📁 Using F5-TTS default reference audio (built-in voice)")
+            except Exception as e:
+                # Fallback: use a simple approach - create ref_file with package path
+                ref_file = "infer/examples/basic/basic_ref_en.wav"
+                if not ref_text:
+                    ref_text = "Some call me nature, others call me mother nature."
+                print(f"📁 Using F5-TTS default reference audio path: {ref_file}")
 
         try:
-            # Generate speech
+            # Generate speech using F5-TTS
             wav, sr, spect = self.tts.infer(
                 gen_text=text,
                 ref_file=ref_file,
@@ -334,8 +357,9 @@ class F5TTSModel:
 
         finally:
             # Cleanup temporary files
-            if ref_file and os.path.exists(ref_file):
-                os.remove(ref_file)
+            # Only remove temp_ref_file (user-uploaded audio), not default ref_file from package
+            if temp_ref_file and os.path.exists(temp_ref_file):
+                os.remove(temp_ref_file)
             if 'output_file' in locals() and os.path.exists(output_file):
                 os.remove(output_file)
 
