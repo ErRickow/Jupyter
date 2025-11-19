@@ -214,20 +214,21 @@ class F5TTSModel:
     def generate_speech(
         self,
         text: str,
-        ref_audio_base64: str,  # REQUIRED! F5-TTS needs reference audio
-        ref_text: str,  # REQUIRED! Transcription of reference audio
+        ref_audio_base64: Optional[str] = None,  # Optional - uses default voice if not provided
+        ref_text: Optional[str] = None,  # Optional - only needed with ref_audio
         remove_silence: bool = True,
     ) -> dict:
         """
         Generate speech dari text menggunakan F5-TTS.
 
-        IMPORTANT: F5-TTS adalah zero-shot TTS yang MEMERLUKAN reference audio!
-        Tidak ada default voice - user HARUS provide reference audio.
+        F5-TTS mendukung 2 mode:
+        1. **Default Voice Mode**: Tanpa reference audio - pakai built-in default voice
+        2. **Voice Cloning Mode**: Dengan reference audio - clone voice dari reference
 
         Args:
-            text: Text yang ingin diubah menjadi speech
-            ref_audio_base64: Reference audio dalam format base64 (REQUIRED!)
-            ref_text: Transcription dari reference audio (REQUIRED!)
+            text: Text yang ingin diubah menjadi speech (REQUIRED)
+            ref_audio_base64: Reference audio base64 untuk voice cloning (Optional)
+            ref_text: Transcription dari reference audio (Optional, hanya jika ada ref_audio)
             remove_silence: Remove silence di awal dan akhir audio
 
         Returns:
@@ -235,6 +236,7 @@ class F5TTSModel:
                 - audio_base64: Generated audio dalam base64
                 - sample_rate: Sample rate audio
                 - duration: Duration dalam detik
+                - mode: "default_voice" atau "voice_cloning"
         """
         import torch
         import soundfile as sf
@@ -246,22 +248,15 @@ class F5TTSModel:
 
         print(f"🎤 Generating speech for text: {text[:50]}...")
 
-        # Validate required parameters
-        if not ref_audio_base64:
-            error_msg = "ref_audio_base64 is REQUIRED! F5-TTS needs reference audio for voice cloning."
-            print(f"❌ {error_msg}")
-            return {
-                "success": False,
-                "error": error_msg,
-            }
+        # Determine mode
+        use_voice_cloning = bool(ref_audio_base64)
 
-        if not ref_text:
-            error_msg = "ref_text is REQUIRED! Provide transcription of reference audio."
-            print(f"❌ {error_msg}")
-            return {
-                "success": False,
-                "error": error_msg,
-            }
+        if use_voice_cloning:
+            print("🎭 Mode: Voice Cloning (with reference audio)")
+            if not ref_text:
+                print("⚠️  Warning: ref_text not provided. Model may use ASR to transcribe reference audio.")
+        else:
+            print("🎙️  Mode: Default Voice (no reference audio)")
 
         # Handle reference audio
         ref_file = None
@@ -318,10 +313,13 @@ class F5TTSModel:
 
             print(f"📊 Audio duration: {duration:.2f} seconds")
 
+            mode = "voice_cloning" if use_voice_cloning else "default_voice"
+
             return {
                 "audio_base64": audio_base64,
                 "sample_rate": int(sr),
                 "duration": float(duration),
+                "mode": mode,
                 "success": True,
             }
 
@@ -353,13 +351,21 @@ def tts_api(data: dict) -> dict:
     """
     RESTful API endpoint untuk TTS inference.
 
-    IMPORTANT: F5-TTS requires reference audio for voice cloning!
+    F5-TTS mendukung 2 mode:
+    1. **Default Voice Mode**: Hanya kirim text - pakai default voice
+    2. **Voice Cloning Mode**: Kirim text + reference audio - clone voice
 
-    Request body:
+    Request body (Default Voice Mode):
     {
         "text": "Text to synthesize (REQUIRED)",
-        "ref_audio_base64": "base64 encoded WAV audio (REQUIRED!)",
-        "ref_text": "Transcription of reference audio (REQUIRED!)",
+        "remove_silence": true
+    }
+
+    Request body (Voice Cloning Mode):
+    {
+        "text": "Text to synthesize (REQUIRED)",
+        "ref_audio_base64": "base64 encoded WAV audio (Optional)",
+        "ref_text": "Transcription of reference audio (Optional)",
         "remove_silence": true
     }
 
@@ -368,6 +374,7 @@ def tts_api(data: dict) -> dict:
         "audio_base64": "base64 encoded generated audio",
         "sample_rate": 24000,
         "duration": 3.5,
+        "mode": "default_voice" or "voice_cloning",
         "success": true
     }
 
@@ -379,7 +386,7 @@ def tts_api(data: dict) -> dict:
     """
     model = F5TTSModel()
 
-    # Validate required fields
+    # Validate required field
     text = data.get("text")
     if not text:
         return {
@@ -387,19 +394,9 @@ def tts_api(data: dict) -> dict:
             "error": "Missing required field: text"
         }
 
+    # Optional fields for voice cloning
     ref_audio_base64 = data.get("ref_audio_base64")
-    if not ref_audio_base64:
-        return {
-            "success": False,
-            "error": "Missing required field: ref_audio_base64. F5-TTS needs reference audio for voice cloning!"
-        }
-
     ref_text = data.get("ref_text")
-    if not ref_text:
-        return {
-            "success": False,
-            "error": "Missing required field: ref_text. Provide transcription of reference audio!"
-        }
 
     result = model.generate_speech.remote(
         text=text,
@@ -435,72 +432,103 @@ def test():
     Test function untuk local testing.
     Run: modal run modal_f5_tts_inference.py
 
-    NOTE: F5-TTS requires reference audio! You need to provide:
-    1. ref_audio_path: Path to reference audio WAV file (3-12 seconds)
-    2. ref_text: Transcription of the reference audio
+    F5-TTS mendukung 2 mode:
+    1. Default Voice Mode: Tanpa reference audio
+    2. Voice Cloning Mode: Dengan reference audio
     """
-    import sys
-
     print("🧪 Testing F5-TTS inference...")
-    print("\n⚠️  IMPORTANT: F5-TTS requires reference audio for voice cloning!")
-    print("Please provide reference audio file to test.")
-    print("\nUsage:")
-    print("  1. Prepare reference audio (WAV, 3-12 seconds)")
-    print("  2. Prepare transcription of reference audio")
-    print("  3. Update this test function with your reference audio path")
-    print("\nExample:")
-    print('  ref_audio_path = "reference.wav"')
-    print('  ref_text = "This is the transcription of reference audio"')
+    print("\n📖 F5-TTS supports 2 modes:")
+    print("  1. Default Voice Mode: Text-only input")
+    print("  2. Voice Cloning Mode: Text + Reference Audio")
+    print()
 
-    # Test configuration - UPDATE THESE!
-    ref_audio_path = None  # TODO: Set to your reference audio path
-    ref_text = None  # TODO: Set to transcription
+    # Test configuration
     test_text = "Halo, ini adalah test dari model F5-TTS untuk text to speech dalam bahasa Indonesia."
-
-    if not ref_audio_path or not ref_text:
-        print("\n❌ Test skipped: No reference audio provided")
-        print("   Update ref_audio_path and ref_text in the test() function")
-        print("\nFor production usage, see modal_f5_tts_client.py")
-        return
-
-    # Read reference audio
-    print(f"\n📁 Reading reference audio: {ref_audio_path}")
-    try:
-        with open(ref_audio_path, "rb") as f:
-            ref_audio_bytes = f.read()
-        ref_audio_base64 = base64.b64encode(ref_audio_bytes).decode()
-    except FileNotFoundError:
-        print(f"❌ Error: Reference audio file not found: {ref_audio_path}")
-        return
 
     # Initialize model
     model = F5TTSModel()
 
-    # Generate speech
-    print(f"\n🔊 Generating speech with voice cloning...")
-    result = model.generate_speech.remote(
+    # TEST 1: Default Voice Mode
+    print("="*60)
+    print("TEST 1: Default Voice Mode (No Reference Audio)")
+    print("="*60)
+
+    print(f"\n🎙️  Generating speech with default voice...")
+    result1 = model.generate_speech.remote(
         text=test_text,
-        ref_audio_base64=ref_audio_base64,
-        ref_text=ref_text,
         remove_silence=True,
     )
 
-    if result["success"]:
-        print(f"\n✅ Test successful!")
-        print(f"   Sample rate: {result['sample_rate']} Hz")
-        print(f"   Duration: {result['duration']:.2f} seconds")
-        print(f"   Audio size: {len(result['audio_base64'])} bytes (base64)")
+    if result1["success"]:
+        print(f"\n✅ Test 1 successful!")
+        print(f"   Mode: {result1.get('mode', 'N/A')}")
+        print(f"   Sample rate: {result1['sample_rate']} Hz")
+        print(f"   Duration: {result1['duration']:.2f} seconds")
 
         # Save to file
-        audio_bytes = base64.b64decode(result["audio_base64"])
-        output_path = "test_output.wav"
+        audio_bytes = base64.b64decode(result1["audio_base64"])
+        output_path = "test_output_default_voice.wav"
 
         with open(output_path, "wb") as f:
             f.write(audio_bytes)
 
         print(f"💾 Audio saved to: {output_path}")
     else:
-        print(f"\n❌ Test failed: {result.get('error')}")
+        print(f"\n❌ Test 1 failed: {result1.get('error')}")
+
+    # TEST 2: Voice Cloning Mode (Optional - jika ada reference audio)
+    print("\n" + "="*60)
+    print("TEST 2: Voice Cloning Mode (With Reference Audio)")
+    print("="*60)
+
+    ref_audio_path = None  # TODO: Set to your reference audio path
+    ref_text = None  # TODO: Set to transcription
+
+    if not ref_audio_path:
+        print("\n⏭️  Test 2 skipped: No reference audio provided")
+        print("   To test voice cloning:")
+        print("   1. Set ref_audio_path = 'your_reference.wav'")
+        print("   2. Set ref_text = 'transcription of reference'")
+        print("   3. Run modal run modal_f5_tts_inference.py again")
+    else:
+        # Read reference audio
+        print(f"\n📁 Reading reference audio: {ref_audio_path}")
+        try:
+            with open(ref_audio_path, "rb") as f:
+                ref_audio_bytes = f.read()
+            ref_audio_base64 = base64.b64encode(ref_audio_bytes).decode()
+
+            print(f"\n🎭 Generating speech with voice cloning...")
+            result2 = model.generate_speech.remote(
+                text=test_text,
+                ref_audio_base64=ref_audio_base64,
+                ref_text=ref_text,
+                remove_silence=True,
+            )
+
+            if result2["success"]:
+                print(f"\n✅ Test 2 successful!")
+                print(f"   Mode: {result2.get('mode', 'N/A')}")
+                print(f"   Sample rate: {result2['sample_rate']} Hz")
+                print(f"   Duration: {result2['duration']:.2f} seconds")
+
+                # Save to file
+                audio_bytes = base64.b64decode(result2["audio_base64"])
+                output_path = "test_output_voice_cloned.wav"
+
+                with open(output_path, "wb") as f:
+                    f.write(audio_bytes)
+
+                print(f"💾 Audio saved to: {output_path}")
+            else:
+                print(f"\n❌ Test 2 failed: {result2.get('error')}")
+
+        except FileNotFoundError:
+            print(f"❌ Error: Reference audio file not found: {ref_audio_path}")
+
+    print("\n" + "="*60)
+    print("✅ Testing completed!")
+    print("="*60)
 
 # ============================================================================
 # DEPLOYMENT INSTRUCTIONS
@@ -531,13 +559,19 @@ CARA DEPLOY & MENGGUNAKAN:
 CHANGELOG:
 ==========
 
-v5 (REFERENCE AUDIO REQUIRED):
-- ✅ Fix TypeError: ref_file cannot be None
-- ✅ Make ref_audio_base64 and ref_text REQUIRED parameters
-- ✅ Add validation untuk required fields di API endpoint
-- ✅ Update test function dengan reference audio example
-- ✅ Better error messages untuk missing reference audio
-- ✅ Clarify bahwa F5-TTS adalah zero-shot TTS (needs reference)
+v6 (DUAL MODE SUPPORT):
+- ✅ F5-TTS supports 2 modes: Default Voice & Voice Cloning
+- ✅ Make ref_audio_base64 and ref_text OPTIONAL (not required)
+- ✅ Default Voice Mode: Input text only → use built-in default voice
+- ✅ Voice Cloning Mode: Input text + reference audio → clone voice
+- ✅ Add "mode" field in response ("default_voice" or "voice_cloning")
+- ✅ Update API documentation untuk dual mode
+- ✅ Update test function untuk test both modes
+- ✅ Remove validation yang require reference audio
+
+v5 (REFERENCE AUDIO REQUIRED - DEPRECATED):
+- ❌ WRONG: Made ref_audio REQUIRED (seharusnya optional)
+- This version has been superseded by v6
 
 v4 (INDONESIAN REQUIRED):
 - ✅ REMOVE fallback ke base model - PapaRazi model adalah REQUIRED

@@ -48,8 +48,8 @@ class F5TTSClient:
     def synthesize(
         self,
         text: str,
-        ref_audio_path: str,  # REQUIRED! F5-TTS needs reference audio
-        ref_text: str,  # REQUIRED! Transcription of reference
+        ref_audio_path: Optional[str] = None,  # Optional - for voice cloning
+        ref_text: Optional[str] = None,  # Optional - transcription of reference
         remove_silence: bool = True,
         output_path: str = "output.wav",
         timeout: int = 120,
@@ -57,12 +57,14 @@ class F5TTSClient:
         """
         Synthesize speech dari text.
 
-        IMPORTANT: F5-TTS adalah zero-shot TTS yang MEMERLUKAN reference audio!
+        F5-TTS supports 2 modes:
+        1. **Default Voice Mode**: Tanpa reference audio - pakai built-in default voice
+        2. **Voice Cloning Mode**: Dengan reference audio - clone voice dari reference
 
         Args:
-            text: Text yang ingin diubah menjadi speech
-            ref_audio_path: Path ke reference audio untuk voice cloning (REQUIRED!)
-            ref_text: Transcription dari reference audio (REQUIRED!)
+            text: Text yang ingin diubah menjadi speech (REQUIRED)
+            ref_audio_path: Path ke reference audio untuk voice cloning (Optional)
+            ref_text: Transcription dari reference audio (Optional, hanya jika ada ref_audio)
             remove_silence: Remove silence di awal dan akhir
             output_path: Path untuk save generated audio
             timeout: Request timeout dalam detik
@@ -70,26 +72,13 @@ class F5TTSClient:
         Returns:
             dict: Response dari API dengan info audio yang di-generate
         """
-        # Validate required parameters
-        if not ref_audio_path:
-            return {
-                "success": False,
-                "error": "ref_audio_path is REQUIRED! F5-TTS needs reference audio."
-            }
-
-        if not ref_text:
-            return {
-                "success": False,
-                "error": "ref_text is REQUIRED! Provide transcription of reference audio."
-            }
-
         # Prepare request data
         data = {
             "text": text,
             "remove_silence": remove_silence,
         }
 
-        # Add reference audio
+        # Add reference audio if provided (Voice Cloning Mode)
         if ref_audio_path:
             ref_path = Path(ref_audio_path)
             if not ref_path.exists():
@@ -226,11 +215,32 @@ def main():
     print(f"GPU Available: {health.get('gpu_available')}")
     print()
 
-    print("\n⚠️  IMPORTANT: F5-TTS requires reference audio!")
-    print("Please prepare:")
-    print("  1. Reference audio file (WAV, 3-12 seconds)")
-    print("  2. Transcription of reference audio")
+    print("\n📖 F5-TTS supports 2 modes:")
+    print("  1. Default Voice Mode: Text-only input")
+    print("  2. Voice Cloning Mode: Text + Reference Audio")
     print()
+
+    # TEST 1: Default Voice Mode (Simple TTS - no reference audio needed!)
+    print("="*60)
+    print("TEST 1: Default Voice Mode (Text Only)")
+    print("="*60)
+
+    result1 = client.synthesize(
+        text="Halo, ini adalah test TTS dengan default voice dalam bahasa Indonesia.",
+        output_path="output_default_voice.wav",
+    )
+
+    if result1.get("success"):
+        print(f"\n✅ Test 1 successful!")
+        print(f"   Mode: {result1.get('mode', 'N/A')}")
+        print(f"   Duration: {result1.get('duration', 0):.2f}s")
+    else:
+        print(f"\n❌ Test 1 failed: {result1.get('error')}")
+
+    # TEST 2: Voice Cloning Mode (Optional - jika punya reference audio)
+    print("\n" + "="*60)
+    print("TEST 2: Voice Cloning Mode (With Reference Audio)")
+    print("="*60)
 
     # Reference audio configuration - UPDATE THESE!
     REF_AUDIO_PATH = "reference_audio.wav"  # TODO: Set your reference audio path
@@ -238,46 +248,25 @@ def main():
 
     import os
     if not os.path.exists(REF_AUDIO_PATH):
-        print(f"❌ Error: Reference audio not found: {REF_AUDIO_PATH}")
-        print("   Please provide reference audio file to use F5-TTS!")
-        print("\nSkipping tests...")
-        return
-
-    # 2. TTS with Voice Cloning (REQUIRED for F5-TTS)
-    print("="*60)
-    print("TEST 1: TTS with Voice Cloning")
-    print("="*60)
-
-    result = client.synthesize(
-        text="Halo, ini adalah test dari model F5-TTS untuk bahasa Indonesia.",
-        ref_audio_path=REF_AUDIO_PATH,
-        ref_text=REF_TEXT,
-        output_path="output_test.wav",
-    )
-
-    if result.get("success"):
-        print(f"\n✅ Test 1 successful!")
+        print(f"\n⏭️  Test 2 skipped: Reference audio not found")
+        print("   To test voice cloning:")
+        print(f"   1. Place reference audio at: {REF_AUDIO_PATH}")
+        print(f"   2. Update REF_TEXT variable")
+        print("   3. Run again")
     else:
-        print(f"\n❌ Test 1 failed: {result.get('error')}")
+        result2 = client.synthesize(
+            text="Halo, ini adalah test dengan voice cloning dalam bahasa Indonesia.",
+            ref_audio_path=REF_AUDIO_PATH,
+            ref_text=REF_TEXT,
+            output_path="output_voice_cloned.wav",
+        )
 
-    # 3. Batch processing
-    print("\n" + "="*60)
-    print("TEST 2: Batch Processing")
-    print("="*60)
-
-    texts = [
-        "Ini adalah kalimat pertama dalam bahasa Indonesia.",
-        "Ini adalah kalimat kedua yang lebih panjang dan mengandung lebih banyak informasi.",
-        "Kalimat ketiga untuk testing batch processing dengan model Indonesian.",
-    ]
-
-    print(f"Processing {len(texts)} texts with same reference voice...")
-    results = client.batch_synthesize(
-        texts=texts,
-        output_dir="batch_outputs",
-        ref_audio_path=REF_AUDIO_PATH,  # Use same reference for all
-        ref_text=REF_TEXT,
-    )
+        if result2.get("success"):
+            print(f"\n✅ Test 2 successful!")
+            print(f"   Mode: {result2.get('mode', 'N/A')}")
+            print(f"   Duration: {result2.get('duration', 0):.2f}s")
+        else:
+            print(f"\n❌ Test 2 failed: {result2.get('error')}")
 
 
 if __name__ == "__main__":
