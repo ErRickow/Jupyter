@@ -361,10 +361,13 @@ class Model:
             layer_3.append(trimmed_codes[base_idx + 6] - (6 * 4096))
 
         # Convert to tensors with proper shape for SNAC [B, T]
+        # Move to same device as SNAC model
+        device = next(self._snac_model.parameters()).device if self._snac_model else 'cpu'
+
         codes = [
-            torch.tensor(layer_1, dtype=torch.int64).unsqueeze(0),
-            torch.tensor(layer_2, dtype=torch.int64).unsqueeze(0),
-            torch.tensor(layer_3, dtype=torch.int64).unsqueeze(0),
+            torch.tensor(layer_1, dtype=torch.int64).unsqueeze(0).to(device),
+            torch.tensor(layer_2, dtype=torch.int64).unsqueeze(0).to(device),
+            torch.tensor(layer_3, dtype=torch.int64).unsqueeze(0).to(device),
         ]
 
         return codes
