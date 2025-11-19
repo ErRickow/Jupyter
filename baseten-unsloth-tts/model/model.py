@@ -221,12 +221,29 @@ class Model:
         Returns:
             Tensor of audio token IDs
         """
-        # Tokenize input
+        # Tokenize input - use apply_chat_template if available for proper format
+        try:
+            # Try using chat template (for proper special token handling)
+            if hasattr(self._tokenizer, 'apply_chat_template'):
+                messages = [{"role": "user", "content": prompt}]
+                formatted_prompt = self._tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+            else:
+                formatted_prompt = prompt
+        except:
+            formatted_prompt = prompt
+
+        # Tokenize with proper settings
         inputs = self._tokenizer(
-            prompt,
+            formatted_prompt,
             return_tensors="pt",
-            padding=True,
+            padding=False,  # Don't pad for single sequence
             truncation=True,
+            max_length=2048,  # Match model max_seq_length
+            add_special_tokens=True,  # Important!
         ).to(self._model.device)
 
         # Generate with Unsloth optimized inference
@@ -236,9 +253,10 @@ class Model:
                 max_new_tokens=max_new_tokens,
                 temperature=temperature,
                 do_sample=True,
-                pad_token_id=self._tokenizer.pad_token_id,
+                pad_token_id=self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else self._tokenizer.eos_token_id,
                 eos_token_id=self._tokenizer.eos_token_id,
                 top_p=0.9,  # Nucleus sampling
+                repetition_penalty=1.1,  # Prevent repetition
             )
 
         # Extract generated tokens (remove input tokens)
