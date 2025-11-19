@@ -125,7 +125,7 @@ def download_model_from_hf(model_id: str, cache_dir: str) -> str:
     image=f5_tts_image,
     gpu=GPU_TYPE,
     timeout=TIMEOUT_MINUTES * 60,
-    container_idle_timeout=300,  # Keep warm untuk 5 menit setelah last request
+    scaledown_window=300,  # Keep warm untuk 5 menit setelah last request
     volumes={
         MODEL_CACHE_DIR: model_cache_vol,
     },
@@ -370,7 +370,7 @@ class F5TTSModel:
 @app.function(
     image=f5_tts_image,
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def tts_api(data: dict) -> dict:
     """
     RESTful API endpoint untuk TTS inference.
@@ -432,7 +432,7 @@ def tts_api(data: dict) -> dict:
     return result
 
 @app.function(image=f5_tts_image)
-@modal.web_endpoint(method="GET")
+@modal.fastapi_endpoint(method="GET")
 def health_check() -> dict:
     """
     Health check endpoint untuk monitoring.
