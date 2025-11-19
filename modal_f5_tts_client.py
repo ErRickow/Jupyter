@@ -224,7 +224,7 @@ def main():
     """Main function dengan contoh penggunaan"""
 
     # GANTI dengan URL Modal deployment Anda
-    API_URL = "https://errickow--f5-tts-inference-health-check.modal.run"
+    API_URL = "https://errickow--f5-tts-inference-tts-api.modal.run"
 
     # Initialize client
     client = F5TTSClient(API_URL)
