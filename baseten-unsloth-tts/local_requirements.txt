@@ -1,19 +1,20 @@
 # Requirements for local testing and development
 # (Baseten deployment uses config.yaml requirements)
 
-# Core dependencies
-torch>=2.1.0
-transformers>=4.36.0
-accelerate>=0.25.0
-bitsandbytes>=0.41.0
+# Core dependencies - compatible with Unsloth 2025.11
+torch>=2.4.0
+transformers>=4.51.3
+accelerate>=0.34.1
+bitsandbytes>=0.45.5
 
-# Unsloth
+# Unsloth and SNAC vocoder
 unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+snac @ git+https://github.com/hubertsiuzdak/snac.git
 
 # Audio processing
-scipy
+torchaudio
 soundfile
-librosa
+scipy
 
 # Testing
 requests

@@ -12,16 +12,22 @@ model_metadata:
     return_format: "base64"
 
 # Python dependencies
+# Note: Using compatible versions based on Unsloth 2025.11 requirements
 requirements:
-  - torch==2.1.2
-  - transformers==4.36.2
+  # Core ML libraries - let Unsloth determine compatible versions
+  - torch>=2.4.0
+  - transformers>=4.51.3
+  - accelerate>=0.34.1
+  - bitsandbytes>=0.45.5
+
+  # Unsloth and SNAC vocoder
   - unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
   - snac @ git+https://github.com/hubertsiuzdak/snac.git
-  - accelerate==0.25.0
-  - bitsandbytes==0.41.3
-  - scipy
-  - soundfile
+
+  # Audio processing
   - torchaudio
+  - soundfile
+  - scipy
 
 # System packages (if needed for audio processing)
 system_packages:
