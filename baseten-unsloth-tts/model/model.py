@@ -216,53 +216,62 @@ class Model:
         max_new_tokens: int = 512
     ) -> torch.Tensor:
         """
-        Generate audio tokens from text prompt
+        Generate audio tokens from text prompt using Orpheus-specific format
 
         Returns:
             Tensor of audio token IDs
         """
-        # Tokenize input - use apply_chat_template if available for proper format
-        try:
-            # Try using chat template (for proper special token handling)
-            if hasattr(self._tokenizer, 'apply_chat_template'):
-                messages = [{"role": "user", "content": prompt}]
-                formatted_prompt = self._tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-            else:
-                formatted_prompt = prompt
-        except:
-            formatted_prompt = prompt
-
-        # Tokenize with proper settings
-        inputs = self._tokenizer(
-            formatted_prompt,
+        # Tokenize input (without special tokens, we add manually)
+        input_ids = self._tokenizer(
+            prompt,
             return_tensors="pt",
-            padding=False,  # Don't pad for single sequence
-            truncation=True,
-            max_length=2048,  # Match model max_seq_length
-            add_special_tokens=True,  # Important!
-        ).to(self._model.device)
+            add_special_tokens=False,  # We add manually below
+        ).input_ids
 
-        # Generate with Unsloth optimized inference
+        # Add Orpheus special tokens manually (from notebook)
+        start_token = torch.tensor([[128259]], dtype=torch.int64)  # Start of human
+        end_tokens = torch.tensor([[128009, 128260]], dtype=torch.int64)  # EOT, End of human
+
+        # Concatenate: SOH + input + EOT + EOH
+        modified_input_ids = torch.cat([start_token, input_ids, end_tokens], dim=1)
+
+        # Move to device
+        input_ids = modified_input_ids.to(self._model.device)
+        attention_mask = torch.ones_like(input_ids)
+
+        # Generate with Orpheus-specific parameters (from notebook)
         with torch.inference_mode():
             outputs = self._model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max(max_new_tokens, 1200),  # Use 1200 as notebook default
                 do_sample=True,
-                pad_token_id=self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else self._tokenizer.eos_token_id,
-                eos_token_id=self._tokenizer.eos_token_id,
-                top_p=0.9,  # Nucleus sampling
-                repetition_penalty=1.1,  # Prevent repetition
+                temperature=max(temperature, 0.6),  # Min 0.6 for quality
+                top_p=0.95,
+                repetition_penalty=1.1,
+                num_return_sequences=1,
+                eos_token_id=128258,  # Orpheus-specific EOS
+                use_cache=True,
             )
 
-        # Extract generated tokens (remove input tokens)
-        generated_tokens = outputs[0][inputs['input_ids'].shape[1]:]
+        # Extract audio codes (remove everything before start of speech token)
+        token_to_find = 128257  # Start of speech
+        token_to_remove = 128258  # EOS
 
-        return generated_tokens
+        # Find last occurrence of start_of_speech token
+        token_indices = (outputs == token_to_find).nonzero(as_tuple=True)
+
+        if len(token_indices[1]) > 0:
+            last_occurrence_idx = token_indices[1][-1].item()
+            cropped_tensor = outputs[:, last_occurrence_idx + 1:]
+        else:
+            cropped_tensor = outputs
+
+        # Remove EOS tokens
+        row = cropped_tensor[0]
+        audio_tokens = row[row != token_to_remove]
+
+        return audio_tokens
 
     def _decode_tokens_to_audio(self, tokens: torch.Tensor) -> np.ndarray:
         """
@@ -310,22 +319,53 @@ class Model:
         """
         Parse model output tokens into SNAC multi-scale codes
 
-        SNAC expects a list of code tensors, one for each temporal scale
-        This is a simplified version - adjust based on your model's token structure
+        Orpheus uses 7-token structure per frame, redistributed to 3 SNAC layers:
+        - Layer 1: 1 code per frame (index 0)
+        - Layer 2: 2 codes per frame (indices 1, 4)
+        - Layer 3: 4 codes per frame (indices 2, 3, 5, 6)
+
+        Based on official Unsloth notebook implementation.
         """
-        # For Orpheus-TTS, tokens are typically structured as:
-        # [text tokens] [audio codes at different scales]
-        # This needs to be parsed according to model architecture
+        # Convert to list for easier manipulation
+        code_list = tokens.tolist()
 
-        # Simplified approach: reshape tokens for SNAC
-        # Note: This may need adjustment based on actual model output format
+        # Trim to multiple of 7
+        row_length = len(code_list)
+        new_length = (row_length // 7) * 7
+        trimmed_codes = code_list[:new_length]
 
-        # SNAC 24kHz has 4 scales with different temporal resolutions
-        # We need to split tokens accordingly
+        # Apply audio code offset (128266 in Orpheus)
+        trimmed_codes = [t - 128266 for t in trimmed_codes]
 
-        # Placeholder: Return tokens as single-scale codes
-        # TODO: Implement proper multi-scale parsing based on model architecture
-        codes = [tokens.unsqueeze(0)]  # [1, T]
+        # Redistribute codes to 3 layers according to Orpheus structure
+        layer_1 = []
+        layer_2 = []
+        layer_3 = []
+
+        num_frames = len(trimmed_codes) // 7
+
+        for i in range(num_frames):
+            base_idx = 7 * i
+
+            # Layer 1: index 0
+            layer_1.append(trimmed_codes[base_idx])
+
+            # Layer 2: indices 1, 4
+            layer_2.append(trimmed_codes[base_idx + 1] - 4096)
+            layer_2.append(trimmed_codes[base_idx + 4] - (4 * 4096))
+
+            # Layer 3: indices 2, 3, 5, 6
+            layer_3.append(trimmed_codes[base_idx + 2] - (2 * 4096))
+            layer_3.append(trimmed_codes[base_idx + 3] - (3 * 4096))
+            layer_3.append(trimmed_codes[base_idx + 5] - (5 * 4096))
+            layer_3.append(trimmed_codes[base_idx + 6] - (6 * 4096))
+
+        # Convert to tensors with proper shape for SNAC [B, T]
+        codes = [
+            torch.tensor(layer_1, dtype=torch.int64).unsqueeze(0),
+            torch.tensor(layer_2, dtype=torch.int64).unsqueeze(0),
+            torch.tensor(layer_3, dtype=torch.int64).unsqueeze(0),
+        ]
 
         return codes
 
