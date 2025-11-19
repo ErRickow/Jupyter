@@ -506,8 +506,8 @@ def test():
     print("TEST 2: Voice Cloning Mode (With Reference Audio)")
     print("="*60)
 
-    ref_audio_path = None  # TODO: Set to your reference audio path
-    ref_text = None  # TODO: Set to transcription
+    ref_audio_path = "v.wav"  # TODO: Set to your reference audio path
+    ref_text = "sekarang saatnya bangun dan hancurkan dunia"  # TODO: Set to transcription
 
     if not ref_audio_path:
         print("\n⏭️  Test 2 skipped: No reference audio provided")
