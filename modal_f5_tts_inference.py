@@ -214,17 +214,20 @@ class F5TTSModel:
     def generate_speech(
         self,
         text: str,
-        ref_audio_base64: Optional[str] = None,
-        ref_text: Optional[str] = None,
+        ref_audio_base64: str,  # REQUIRED! F5-TTS needs reference audio
+        ref_text: str,  # REQUIRED! Transcription of reference audio
         remove_silence: bool = True,
     ) -> dict:
         """
         Generate speech dari text menggunakan F5-TTS.
 
+        IMPORTANT: F5-TTS adalah zero-shot TTS yang MEMERLUKAN reference audio!
+        Tidak ada default voice - user HARUS provide reference audio.
+
         Args:
             text: Text yang ingin diubah menjadi speech
-            ref_audio_base64: Reference audio dalam format base64 (optional untuk voice cloning)
-            ref_text: Transcription dari reference audio (optional)
+            ref_audio_base64: Reference audio dalam format base64 (REQUIRED!)
+            ref_text: Transcription dari reference audio (REQUIRED!)
             remove_silence: Remove silence di awal dan akhir audio
 
         Returns:
@@ -243,7 +246,24 @@ class F5TTSModel:
 
         print(f"🎤 Generating speech for text: {text[:50]}...")
 
-        # Handle reference audio jika ada
+        # Validate required parameters
+        if not ref_audio_base64:
+            error_msg = "ref_audio_base64 is REQUIRED! F5-TTS needs reference audio for voice cloning."
+            print(f"❌ {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+            }
+
+        if not ref_text:
+            error_msg = "ref_text is REQUIRED! Provide transcription of reference audio."
+            print(f"❌ {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+            }
+
+        # Handle reference audio
         ref_file = None
         if ref_audio_base64:
             # Decode base64 audio
@@ -333,24 +353,33 @@ def tts_api(data: dict) -> dict:
     """
     RESTful API endpoint untuk TTS inference.
 
+    IMPORTANT: F5-TTS requires reference audio for voice cloning!
+
     Request body:
     {
-        "text": "Text to synthesize",
-        "ref_audio_base64": "base64 encoded audio (optional)",
-        "ref_text": "Reference transcription (optional)",
+        "text": "Text to synthesize (REQUIRED)",
+        "ref_audio_base64": "base64 encoded WAV audio (REQUIRED!)",
+        "ref_text": "Transcription of reference audio (REQUIRED!)",
         "remove_silence": true
     }
 
-    Response:
+    Response (Success):
     {
         "audio_base64": "base64 encoded generated audio",
         "sample_rate": 24000,
         "duration": 3.5,
         "success": true
     }
+
+    Response (Error):
+    {
+        "success": false,
+        "error": "Error message"
+    }
     """
     model = F5TTSModel()
 
+    # Validate required fields
     text = data.get("text")
     if not text:
         return {
@@ -358,10 +387,24 @@ def tts_api(data: dict) -> dict:
             "error": "Missing required field: text"
         }
 
+    ref_audio_base64 = data.get("ref_audio_base64")
+    if not ref_audio_base64:
+        return {
+            "success": False,
+            "error": "Missing required field: ref_audio_base64. F5-TTS needs reference audio for voice cloning!"
+        }
+
+    ref_text = data.get("ref_text")
+    if not ref_text:
+        return {
+            "success": False,
+            "error": "Missing required field: ref_text. Provide transcription of reference audio!"
+        }
+
     result = model.generate_speech.remote(
         text=text,
-        ref_audio_base64=data.get("ref_audio_base64"),
-        ref_text=data.get("ref_text"),
+        ref_audio_base64=ref_audio_base64,
+        ref_text=ref_text,
         remove_silence=data.get("remove_silence", True),
     )
 
@@ -391,23 +434,59 @@ def test():
     """
     Test function untuk local testing.
     Run: modal run modal_f5_tts_inference.py
-    """
-    print("🧪 Testing F5-TTS inference...")
 
-    # Test text
+    NOTE: F5-TTS requires reference audio! You need to provide:
+    1. ref_audio_path: Path to reference audio WAV file (3-12 seconds)
+    2. ref_text: Transcription of the reference audio
+    """
+    import sys
+
+    print("🧪 Testing F5-TTS inference...")
+    print("\n⚠️  IMPORTANT: F5-TTS requires reference audio for voice cloning!")
+    print("Please provide reference audio file to test.")
+    print("\nUsage:")
+    print("  1. Prepare reference audio (WAV, 3-12 seconds)")
+    print("  2. Prepare transcription of reference audio")
+    print("  3. Update this test function with your reference audio path")
+    print("\nExample:")
+    print('  ref_audio_path = "reference.wav"')
+    print('  ref_text = "This is the transcription of reference audio"')
+
+    # Test configuration - UPDATE THESE!
+    ref_audio_path = None  # TODO: Set to your reference audio path
+    ref_text = None  # TODO: Set to transcription
     test_text = "Halo, ini adalah test dari model F5-TTS untuk text to speech dalam bahasa Indonesia."
+
+    if not ref_audio_path or not ref_text:
+        print("\n❌ Test skipped: No reference audio provided")
+        print("   Update ref_audio_path and ref_text in the test() function")
+        print("\nFor production usage, see modal_f5_tts_client.py")
+        return
+
+    # Read reference audio
+    print(f"\n📁 Reading reference audio: {ref_audio_path}")
+    try:
+        with open(ref_audio_path, "rb") as f:
+            ref_audio_bytes = f.read()
+        ref_audio_base64 = base64.b64encode(ref_audio_bytes).decode()
+    except FileNotFoundError:
+        print(f"❌ Error: Reference audio file not found: {ref_audio_path}")
+        return
 
     # Initialize model
     model = F5TTSModel()
 
     # Generate speech
+    print(f"\n🔊 Generating speech with voice cloning...")
     result = model.generate_speech.remote(
         text=test_text,
+        ref_audio_base64=ref_audio_base64,
+        ref_text=ref_text,
         remove_silence=True,
     )
 
     if result["success"]:
-        print(f"✅ Test successful!")
+        print(f"\n✅ Test successful!")
         print(f"   Sample rate: {result['sample_rate']} Hz")
         print(f"   Duration: {result['duration']:.2f} seconds")
         print(f"   Audio size: {len(result['audio_base64'])} bytes (base64)")
@@ -421,7 +500,7 @@ def test():
 
         print(f"💾 Audio saved to: {output_path}")
     else:
-        print(f"❌ Test failed: {result.get('error')}")
+        print(f"\n❌ Test failed: {result.get('error')}")
 
 # ============================================================================
 # DEPLOYMENT INSTRUCTIONS
@@ -451,6 +530,14 @@ CARA DEPLOY & MENGGUNAKAN:
 
 CHANGELOG:
 ==========
+
+v5 (REFERENCE AUDIO REQUIRED):
+- ✅ Fix TypeError: ref_file cannot be None
+- ✅ Make ref_audio_base64 and ref_text REQUIRED parameters
+- ✅ Add validation untuk required fields di API endpoint
+- ✅ Update test function dengan reference audio example
+- ✅ Better error messages untuk missing reference audio
+- ✅ Clarify bahwa F5-TTS adalah zero-shot TTS (needs reference)
 
 v4 (INDONESIAN REQUIRED):
 - ✅ REMOVE fallback ke base model - PapaRazi model adalah REQUIRED

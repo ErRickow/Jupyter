@@ -48,8 +48,8 @@ class F5TTSClient:
     def synthesize(
         self,
         text: str,
-        ref_audio_path: Optional[str] = None,
-        ref_text: Optional[str] = None,
+        ref_audio_path: str,  # REQUIRED! F5-TTS needs reference audio
+        ref_text: str,  # REQUIRED! Transcription of reference
         remove_silence: bool = True,
         output_path: str = "output.wav",
         timeout: int = 120,
@@ -57,10 +57,12 @@ class F5TTSClient:
         """
         Synthesize speech dari text.
 
+        IMPORTANT: F5-TTS adalah zero-shot TTS yang MEMERLUKAN reference audio!
+
         Args:
             text: Text yang ingin diubah menjadi speech
-            ref_audio_path: Path ke reference audio untuk voice cloning (optional)
-            ref_text: Transcription dari reference audio (optional)
+            ref_audio_path: Path ke reference audio untuk voice cloning (REQUIRED!)
+            ref_text: Transcription dari reference audio (REQUIRED!)
             remove_silence: Remove silence di awal dan akhir
             output_path: Path untuk save generated audio
             timeout: Request timeout dalam detik
@@ -68,13 +70,26 @@ class F5TTSClient:
         Returns:
             dict: Response dari API dengan info audio yang di-generate
         """
+        # Validate required parameters
+        if not ref_audio_path:
+            return {
+                "success": False,
+                "error": "ref_audio_path is REQUIRED! F5-TTS needs reference audio."
+            }
+
+        if not ref_text:
+            return {
+                "success": False,
+                "error": "ref_text is REQUIRED! Provide transcription of reference audio."
+            }
+
         # Prepare request data
         data = {
             "text": text,
             "remove_silence": remove_silence,
         }
 
-        # Add reference audio jika ada
+        # Add reference audio
         if ref_audio_path:
             ref_path = Path(ref_audio_path)
             if not ref_path.exists():
@@ -211,47 +226,57 @@ def main():
     print(f"GPU Available: {health.get('gpu_available')}")
     print()
 
-    # 2. Simple TTS (tanpa voice cloning)
+    print("\n⚠️  IMPORTANT: F5-TTS requires reference audio!")
+    print("Please prepare:")
+    print("  1. Reference audio file (WAV, 3-12 seconds)")
+    print("  2. Transcription of reference audio")
+    print()
+
+    # Reference audio configuration - UPDATE THESE!
+    REF_AUDIO_PATH = "reference_audio.wav"  # TODO: Set your reference audio path
+    REF_TEXT = "Transcription of your reference audio."  # TODO: Set transcription
+
+    import os
+    if not os.path.exists(REF_AUDIO_PATH):
+        print(f"❌ Error: Reference audio not found: {REF_AUDIO_PATH}")
+        print("   Please provide reference audio file to use F5-TTS!")
+        print("\nSkipping tests...")
+        return
+
+    # 2. TTS with Voice Cloning (REQUIRED for F5-TTS)
     print("="*60)
-    print("TEST 1: Simple Text-to-Speech")
+    print("TEST 1: TTS with Voice Cloning")
     print("="*60)
 
     result = client.synthesize(
-        text="Halo, ini adalah test dari model F5-TTS. Model ini dapat mengubah text menjadi speech dengan kualitas yang sangat baik.",
-        output_path="output_simple.wav",
+        text="Halo, ini adalah test dari model F5-TTS untuk bahasa Indonesia.",
+        ref_audio_path=REF_AUDIO_PATH,
+        ref_text=REF_TEXT,
+        output_path="output_test.wav",
     )
 
-    # 3. TTS dengan voice cloning
+    if result.get("success"):
+        print(f"\n✅ Test 1 successful!")
+    else:
+        print(f"\n❌ Test 1 failed: {result.get('error')}")
+
+    # 3. Batch processing
     print("\n" + "="*60)
-    print("TEST 2: Voice Cloning")
-    print("="*60)
-
-    # NOTE: Ganti dengan path ke reference audio Anda
-    REF_AUDIO_PATH = "reference_audio.wav"  # Harus ada file ini
-    REF_TEXT = "This is the transcription of reference audio."
-
-    # Uncomment jika punya reference audio
-    # result = client.synthesize(
-    #     text="Ini adalah cloning dari suara reference audio yang diberikan.",
-    #     ref_audio_path=REF_AUDIO_PATH,
-    #     ref_text=REF_TEXT,
-    #     output_path="output_cloned.wav",
-    # )
-
-    # 4. Batch processing
-    print("\n" + "="*60)
-    print("TEST 3: Batch Processing")
+    print("TEST 2: Batch Processing")
     print("="*60)
 
     texts = [
-        "Ini adalah kalimat pertama.",
+        "Ini adalah kalimat pertama dalam bahasa Indonesia.",
         "Ini adalah kalimat kedua yang lebih panjang dan mengandung lebih banyak informasi.",
-        "Kalimat ketiga untuk testing batch processing.",
+        "Kalimat ketiga untuk testing batch processing dengan model Indonesian.",
     ]
 
+    print(f"Processing {len(texts)} texts with same reference voice...")
     results = client.batch_synthesize(
         texts=texts,
         output_dir="batch_outputs",
+        ref_audio_path=REF_AUDIO_PATH,  # Use same reference for all
+        ref_text=REF_TEXT,
     )
 
 
