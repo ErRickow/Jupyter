@@ -1,0 +1,47 @@
+model_name: unsloth-tts
+python_version: py311
+
+# Model metadata
+model_metadata:
+  example_model_input:
+    text: "Hello, this is a test of text to speech synthesis using Unsloth for efficient inference."
+    temperature: 0.7
+    max_length: 1024
+
+# Python dependencies
+requirements:
+  - torch==2.1.2
+  - transformers==4.36.2
+  - unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+  - accelerate==0.25.0
+  - bitsandbytes==0.41.3
+  - scipy
+  - soundfile
+  - librosa
+
+# System packages (if needed for audio processing)
+system_packages:
+  - ffmpeg
+  - libsndfile1
+
+# Resources - Optimized for T4 GPU
+resources:
+  cpu: "4"
+  memory: 16Gi
+  use_gpu: true
+  accelerator: T4
+
+# Runtime configuration
+runtime:
+  predict_concurrency: 4
+
+# Environment variables
+environment_variables: {}
+
+# Secrets (add your HuggingFace token if using gated models)
+secrets: {}
+
+# Base image
+base_image:
+  image: baseten/truss-server-base
+  python_executable_path: /usr/bin/python3
