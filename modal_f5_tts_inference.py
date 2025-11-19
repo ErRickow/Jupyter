@@ -1,17 +1,21 @@
 """
-F5-TTS Inference Deployment on Modal.com (FIXED VERSION)
-=========================================================
+F5-TTS Inference Deployment on Modal.com
+=========================================
 
-Deploy PapaRazi/Ijazah_Palsu_V2 (F5-TTS based) Text-to-Speech model for serverless inference.
+Deploy PapaRazi/Ijazah_Palsu_V2 - Indonesian fine-tuned F5-TTS model.
 
-FIXED: Proper model download dari HuggingFace sebelum loading
+IMPORTANT:
+- Model PapaRazi/Ijazah_Palsu_V2 adalah REQUIRED (fine-tuned untuk bahasa Indonesia)
+- TIDAK ada fallback ke base model - model Indo ini HARUS digunakan
+- Jika model gagal download/load, deployment akan error (by design)
 
 Features:
-- Download model dari HuggingFace dulu
+- Download model PapaRazi dari HuggingFace
 - GPU T4 untuk inference cepat
 - RESTful API endpoints
 - Zero-shot voice cloning
 - Model caching untuk cold start yang lebih cepat
+- Optimized untuk bahasa Indonesia
 
 Author: Claude
 Date: 2025
@@ -28,8 +32,7 @@ from typing import Optional
 # ============================================================================
 
 # Model configuration
-MODEL_NAME = "PapaRazi/Ijazah_Palsu_V2"  # HuggingFace model ID
-BASE_MODEL = "SWivid/F5-TTS"  # Fallback ke base model jika custom model tidak tersedia
+MODEL_NAME = "PapaRazi/Ijazah_Palsu_V2"  # Indonesian fine-tuned F5-TTS model (REQUIRED)
 GPU_TYPE = "T4"  # GPU type sesuai permintaan
 TIMEOUT_MINUTES = 10
 
@@ -160,73 +163,52 @@ class F5TTSModel:
             print(f"   GPU: {gpu_name}")
             print(f"   Memory: {gpu_memory:.2f} GB")
 
-        # Download model dari HuggingFace
-        model_loaded = False
-        model_path = None
+        # Download model dari HuggingFace - HARUS pakai PapaRazi (fine-tuned Indo)
+        print(f"\n📥 Step 1: Downloading model from HuggingFace...")
+        print(f"   REQUIRED: {MODEL_NAME} (Indonesian fine-tuned version)")
 
-        try:
-            # Try download custom model
-            print(f"\n📥 Step 1: Downloading model from HuggingFace...")
-            model_path = download_model_from_hf(MODEL_NAME, MODEL_CACHE_DIR)
+        # Download model - akan error jika gagal
+        model_path = download_model_from_hf(MODEL_NAME, MODEL_CACHE_DIR)
 
-            # Check if model files exist
-            model_path_obj = Path(model_path)
-            print(f"\n📁 Model files in {model_path}:")
+        # Check if model files exist
+        model_path_obj = Path(model_path)
+        print(f"\n📁 Model files in {model_path}:")
 
-            if model_path_obj.exists():
-                files = list(model_path_obj.rglob("*"))[:20]  # Show first 20 files
-                for f in files:
-                    if f.is_file():
-                        size_mb = f.stat().st_size / (1024 * 1024)
-                        print(f"   - {f.name} ({size_mb:.2f} MB)")
+        if model_path_obj.exists():
+            files = list(model_path_obj.rglob("*"))[:20]  # Show first 20 files
+            for f in files:
+                if f.is_file():
+                    size_mb = f.stat().st_size / (1024 * 1024)
+                    print(f"   - {f.name} ({size_mb:.2f} MB)")
 
-            # Load model dengan F5-TTS
-            print(f"\n🔄 Step 2: Loading model into memory...")
+        # Load model dengan F5-TTS
+        print(f"\n🔄 Step 2: Loading model into memory...")
 
-            from f5_tts.api import F5TTS
+        from f5_tts.api import F5TTS
 
-            # Check for model checkpoint files
-            ckpt_files = list(model_path_obj.rglob("*.pt")) + list(model_path_obj.rglob("*.pth")) + list(model_path_obj.rglob("*.safetensors"))
+        # Check for model checkpoint files
+        ckpt_files = list(model_path_obj.rglob("*.pt")) + \
+                     list(model_path_obj.rglob("*.pth")) + \
+                     list(model_path_obj.rglob("*.safetensors"))
 
-            if ckpt_files:
-                # Load dari checkpoint yang di-download
-                ckpt_file = str(ckpt_files[0])
-                print(f"   Using checkpoint: {ckpt_file}")
+        if not ckpt_files:
+            error_msg = f"No checkpoint files (.pt/.pth/.safetensors) found in {model_path}"
+            print(f"❌ {error_msg}")
+            raise FileNotFoundError(error_msg)
 
-                # F5TTS API: model parameter (not model_type), ckpt_file for custom checkpoint
-                self.tts = F5TTS(
-                    model="F5TTS_Base",  # Model config name
-                    ckpt_file=ckpt_file,  # Custom checkpoint path
-                    device=self.device,
-                )
-                model_loaded = True
-                print(f"✅ Successfully loaded custom model: {MODEL_NAME}")
-            else:
-                print(f"⚠️  No checkpoint files found in downloaded model")
-                raise FileNotFoundError("No model checkpoint found")
+        # Load dari checkpoint yang di-download
+        ckpt_file = str(ckpt_files[0])
+        print(f"   Using checkpoint: {ckpt_file}")
 
-        except Exception as e:
-            # Fallback ke base model
-            print(f"\n⚠️  Could not load custom model: {e}")
-            print(f"🔄 Falling back to base model: {BASE_MODEL}")
+        # F5TTS API: model parameter (not model_type), ckpt_file for custom checkpoint
+        self.tts = F5TTS(
+            model="F5TTS_Base",  # Model config name
+            ckpt_file=ckpt_file,  # Custom checkpoint path (PapaRazi Indonesian model)
+            device=self.device,
+        )
 
-            try:
-                from f5_tts.api import F5TTS
-                # Use base F5-TTS model with default checkpoint
-                self.tts = F5TTS(
-                    model="F5TTS_Base",  # or "F5TTS_v1_Base"
-                    device=self.device,
-                )
-                model_loaded = True
-                print(f"✅ Successfully loaded base F5-TTS model")
-            except Exception as base_error:
-                print(f"❌ Failed to load base model: {base_error}")
-                raise
-
-        if not model_loaded:
-            raise RuntimeError("Failed to load any TTS model")
-
-        print("\n✅ Model loaded and ready for inference!")
+        print(f"✅ Successfully loaded Indonesian TTS model: {MODEL_NAME}")
+        print("✅ Model loaded and ready for inference!")
 
     @modal.method()
     def generate_speech(
@@ -469,6 +451,13 @@ CARA DEPLOY & MENGGUNAKAN:
 
 CHANGELOG:
 ==========
+
+v4 (INDONESIAN REQUIRED):
+- ✅ REMOVE fallback ke base model - PapaRazi model adalah REQUIRED
+- ✅ Model PapaRazi/Ijazah_Palsu_V2 fine-tuned untuk bahasa Indonesia
+- ✅ Fail fast jika model gagal download/load (no silent fallback)
+- ✅ Update documentation untuk clarify Indonesian-only model
+- ✅ Better error messages untuk checkpoint tidak ditemukan
 
 v3 (FIXED API):
 - ✅ Fix F5TTS API call - use 'model' parameter instead of 'model_type'
