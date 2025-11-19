@@ -224,7 +224,7 @@ def main():
     """Main function dengan contoh penggunaan"""
 
     # GANTI dengan URL Modal deployment Anda
-    API_URL = "https://your-username--f5-tts-inference-tts-api.modal.run"
+    API_URL = "https://errickow--f5-tts-inference-health-check.modal.run"
 
     # Initialize client
     client = F5TTSClient(API_URL)
@@ -247,7 +247,7 @@ def main():
     print("="*60)
 
     # Reference audio configuration - UPDATE THESE dengan Indonesian audio!
-    REF_AUDIO_PATH = "indonesian_reference.wav"  # TODO: Set Indonesian reference audio path
+    REF_AUDIO_PATH = "v.wav"  # TODO: Set Indonesian reference audio path
     REF_TEXT = "Halo, nama saya adalah contoh suara untuk referensi."  # TODO: Set Indonesian transcription
 
     import os
